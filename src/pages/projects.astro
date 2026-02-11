@@ -1,0 +1,48 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+
+interface Project {
+  id: number;
+  title: string;
+  description: string;
+  url: string | null;
+  created_at: string;
+}
+
+const runtime = Astro.locals.runtime;
+let projects: Project[] = [];
+
+try {
+  const { results } = await runtime.env.DB.prepare(
+    'SELECT id, title, description, url, created_at FROM projects ORDER BY created_at DESC'
+  ).all<Project>();
+  projects = results;
+} catch {
+  // DB not available or table doesn't exist yet
+}
+---
+
+<BaseLayout title="Projects | Jason Stanfill">
+  <h1 class="mb-8 text-4xl font-bold">Projects</h1>
+
+  {projects.length === 0 ? (
+    <p class="text-gray-400">No projects yet.</p>
+  ) : (
+    <ul class="space-y-6">
+      {projects.map((project) => (
+        <li class="rounded-lg border border-gray-800 p-6">
+          <h2 class="text-xl font-semibold">
+            {project.url ? (
+              <a href={project.url} class="text-blue-400 underline hover:text-blue-300">
+                {project.title}
+              </a>
+            ) : (
+              project.title
+            )}
+          </h2>
+          <p class="mt-2 text-gray-400">{project.description}</p>
+        </li>
+      ))}
+    </ul>
+  )}
+</BaseLayout>
