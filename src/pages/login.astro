@@ -1,0 +1,159 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getCredentialCount } from '../lib/auth';
+
+// Redirect already-authenticated users
+if (Astro.locals.user) {
+  return Astro.redirect('/', 302);
+}
+
+const db = Astro.locals.runtime.env.DB;
+let hasCredentials = false;
+try {
+  hasCredentials = (await getCredentialCount(db)) > 0;
+} catch {
+  // Table might not exist yet
+}
+
+const mode = hasCredentials ? 'login' : 'setup';
+---
+
+<BaseLayout title="Sign In | Jason Stanfill">
+  <div class="mx-auto max-w-sm pt-12">
+    <div id="auth-card" class="rounded-lg border border-gray-800 p-8 text-center">
+      {mode === 'setup' ? (
+        <div id="setup-mode">
+          <h1 class="mb-2 text-2xl font-bold">Setup Your Passkey</h1>
+          <p class="mb-6 text-sm text-gray-400">
+            Register a passkey to secure your site.
+          </p>
+          <button
+            id="register-btn"
+            class="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          >
+            Register Passkey
+          </button>
+        </div>
+      ) : (
+        <div id="login-mode">
+          <h1 class="mb-2 text-2xl font-bold">Sign In</h1>
+          <p class="mb-6 text-sm text-gray-400">
+            Authenticate with your passkey.
+          </p>
+          <button
+            id="login-btn"
+            class="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          >
+            Sign In with Passkey
+          </button>
+        </div>
+      )}
+      <p id="error-msg" class="mt-4 hidden text-sm text-red-400"></p>
+      <p id="status-msg" class="mt-4 hidden text-sm text-gray-400"></p>
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+
+  const mode = document.getElementById('setup-mode') ? 'setup' : 'login';
+  const errorEl = document.getElementById('error-msg') as HTMLParagraphElement;
+  const statusEl = document.getElementById('status-msg') as HTMLParagraphElement;
+
+  function showError(msg: string) {
+    errorEl.textContent = msg;
+    errorEl.classList.remove('hidden');
+    statusEl.classList.add('hidden');
+  }
+
+  function showStatus(msg: string) {
+    statusEl.textContent = msg;
+    statusEl.classList.remove('hidden');
+    errorEl.classList.add('hidden');
+  }
+
+  if (mode === 'setup') {
+    const btn = document.getElementById('register-btn') as HTMLButtonElement;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      errorEl.classList.add('hidden');
+      showStatus('Starting registration...');
+
+      try {
+        const optRes = await fetch('/api/auth/register-options', { method: 'POST' });
+        if (!optRes.ok) {
+          const data = await optRes.json();
+          throw new Error(data.error || 'Failed to get options');
+        }
+
+        const { options, challengeId, webauthnUserId } = await optRes.json();
+        showStatus('Waiting for passkey...');
+
+        const attestation = await startRegistration({ optionsJSON: options });
+
+        showStatus('Verifying...');
+        const verifyRes = await fetch('/api/auth/register-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attestation, challengeId, webauthnUserId }),
+        });
+
+        if (!verifyRes.ok) {
+          const data = await verifyRes.json();
+          throw new Error(data.error || 'Verification failed');
+        }
+
+        window.location.href = '/';
+      } catch (err: any) {
+        if (err.name === 'NotAllowedError') {
+          showError('Passkey registration was cancelled.');
+        } else {
+          showError(err.message || 'Registration failed');
+        }
+        btn.disabled = false;
+      }
+    });
+  } else {
+    const btn = document.getElementById('login-btn') as HTMLButtonElement;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      errorEl.classList.add('hidden');
+      showStatus('Starting authentication...');
+
+      try {
+        const optRes = await fetch('/api/auth/login-options', { method: 'POST' });
+        if (!optRes.ok) {
+          const data = await optRes.json();
+          throw new Error(data.error || 'Failed to get options');
+        }
+
+        const { options, challengeId } = await optRes.json();
+        showStatus('Waiting for passkey...');
+
+        const assertion = await startAuthentication({ optionsJSON: options });
+
+        showStatus('Verifying...');
+        const verifyRes = await fetch('/api/auth/login-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assertion, challengeId }),
+        });
+
+        if (!verifyRes.ok) {
+          const data = await verifyRes.json();
+          throw new Error(data.error || 'Authentication failed');
+        }
+
+        window.location.href = '/';
+      } catch (err: any) {
+        if (err.name === 'NotAllowedError') {
+          showError('Authentication was cancelled.');
+        } else {
+          showError(err.message || 'Authentication failed');
+        }
+        btn.disabled = false;
+      }
+    });
+  }
+</script>

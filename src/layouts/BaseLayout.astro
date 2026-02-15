@@ -4,6 +4,7 @@ interface Props {
 }
 
 const { title = 'Jason Stanfill' } = Astro.props;
+const user = Astro.locals.user;
 ---
 
 <html lang="en">
@@ -23,6 +24,14 @@ const { title = 'Jason Stanfill' } = Astro.props;
           <a href="/" class="text-gray-400 hover:text-white">Home</a>
           <a href="/projects" class="text-gray-400 hover:text-white">Projects</a>
         </div>
+        {user && (
+          <button
+            id="logout-btn"
+            class="ml-auto text-sm text-gray-400 hover:text-white"
+          >
+            Logout
+          </button>
+        )}
       </div>
     </nav>
     <main class="mx-auto max-w-3xl px-6 py-12">
@@ -30,6 +39,13 @@ const { title = 'Jason Stanfill' } = Astro.props;
     </main>
   </body>
 </html>
+
+<script>
+  document.getElementById('logout-btn')?.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+  });
+</script>
 
 <style is:global>
   @import '../styles/global.css';
